@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloud Storage Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans p-8">
+
+    <div class="max-w-4xl mx-auto">
+        <header class="mb-8 border-b pb-4">
+            <h1 class="text-3xl font-bold text-blue-600">Cloud Storage Manager</h1>
+            <p class="text-gray-500 text-sm mt-1">Powered by Flask and AWS S3</p>
+        </header>
+
+        <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200 mb-8">
+            <h2 class="text-lg font-semibold mb-4">Upload a File</h2>
+            <div class="flex items-center gap-4">
+                <input type="file" id="fileInput" class="block w-full text-sm text-gray-500
+                    file:mr-4 file:py-2 file:px-4
+                    file:rounded-md file:border-0
+                    file:text-sm file:font-semibold
+                    file:bg-blue-50 file:text-blue-700
+                    hover:file:bg-blue-100 cursor-pointer border rounded-md p-1">
+                <button onclick="uploadFile()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-md transition-colors">
+                    Upload
+                </button>
+            </div>
+            <p id="uploadStatus" class="text-sm mt-3 hidden"></p>
+        </div>
+
+        <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-semibold">Your Files</h2>
+                <button onclick="loadFiles()" class="text-sm text-blue-600 hover:underline">Refresh List</button>
+            </div>
+            
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-gray-50 border-b border-gray-200">
+                            <th class="py-3 px-4 font-medium text-sm text-gray-600">Filename</th>
+                            <th class="py-3 px-4 font-medium text-sm text-gray-600">Size (Bytes)</th>
+                            <th class="py-3 px-4 font-medium text-sm text-gray-600 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="fileTableBody" class="divide-y divide-gray-100">
+                        </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Load files immediately when the page opens
+        document.addEventListener('DOMContentLoaded', loadFiles);
+
+        // Fetch and display files
+        async function loadFiles() {
+            const tbody = document.getElementById('fileTableBody');
+            tbody.innerHTML = '<tr><td colspan="3" class="py-4 text-center text-gray-500">Loading files...</td></tr>';
+            
+            try {
+                const response = await fetch('/files');
+                const data = await response.json();
+                
+                tbody.innerHTML = ''; // Clear loading text
+                
+                if (data.files && data.files.length > 0) {
+                    data.files.forEach(file => {
+                        const row = `
+                            <tr class="hover:bg-gray-50 transition-colors">
+                                <td class="py-3 px-4 text-sm text-gray-800">${file.filename}</td>
+                                <td class="py-3 px-4 text-sm text-gray-500">${file.size_bytes.toLocaleString()}</td>
+                                <td class="py-3 px-4 text-right space-x-2">
+                                    <button onclick="downloadFile('${file.filename}')" class="text-blue-600 hover:text-blue-800 text-sm font-medium">Download</button>
+                                    <button onclick="deleteFile('${file.filename}')" class="text-red-600 hover:text-red-800 text-sm font-medium">Delete</button>
+                                </td>
+                            </tr>
+                        `;
+                        tbody.insertAdjacentHTML('beforeend', row);
+                    });
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="3" class="py-4 text-center text-gray-500">Your bucket is empty.</td></tr>';
+                }
+            } catch (error) {
+                tbody.innerHTML = '<tr><td colspan="3" class="py-4 text-center text-red-500">Error loading files. Is the server running?</td></tr>';
+            }
+        }
+
+        // Handle File Upload
+        async function uploadFile() {
+            const fileInput = document.getElementById('fileInput');
+            const statusText = document.getElementById('uploadStatus');
+            
+            if (fileInput.files.length === 0) {
+                showStatus('Please select a file first.', 'text-red-600');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            showStatus('Uploading...', 'text-blue-600');
+
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData // Fetch automatically sets the correct multipart/form-data headers and boundaries
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showStatus('File uploaded successfully!', 'text-green-600');
+                    fileInput.value = ''; // Clear input
+                    loadFiles(); // Refresh the table
+                } else {
+                    showStatus(`Error: ${data.error}`, 'text-red-600');
+                }
+            } catch (error) {
+                showStatus('Upload failed. Check server console.', 'text-red-600');
+            }
+        }
+
+        // Handle File Download (Pre-signed URL)
+        async function downloadFile(filename) {
+            try {
+                const response = await fetch(`/download/${filename}`);
+                const data = await response.json();
+                
+                if (response.ok && data.download_url) {
+                    // Create a temporary hidden link and click it to trigger the browser download
+                    const a = document.createElement('a');
+                    a.href = data.download_url;
+                    a.target = '_blank';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                } else {
+                    alert(`Error generating download link: ${data.error}`);
+                }
+            } catch (error) {
+                alert('Failed to connect to download endpoint.');
+            }
+        }
+
+        // Handle File Deletion
+        async function deleteFile(filename) {
+            if (!confirm(`Are you sure you want to delete ${filename}?`)) return;
+
+            try {
+                const response = await fetch(`/delete/${filename}`, { method: 'DELETE' });
+                if (response.ok) {
+                    loadFiles(); // Refresh the table
+                } else {
+                    const data = await response.json();
+                    alert(`Error: ${data.error}`);
+                }
+            } catch (error) {
+                alert('Failed to connect to delete endpoint.');
+            }
+        }
+
+        // Helper function for UI messages
+        function showStatus(message, colorClass) {
+            const statusEl = document.getElementById('uploadStatus');
+            statusEl.textContent = message;
+            statusEl.className = `text-sm mt-3 ${colorClass}`;
+            statusEl.classList.remove('hidden');
+            setTimeout(() => statusEl.classList.add('hidden'), 5000);
+        }
+    </script>
+</body>
+</html>
