@@ -23,8 +23,7 @@ The backend is built with Python and Flask, integrating directly with Amazon S3 
 
 ## 📸 Application Interface
 
-*(Note to reviewers: Place a screenshot of your web interface here)*
-![App Screenshot](link_to_your_screenshot_image.png)
+![App Screenshot]![alt text](image.png)
 
 ## 💻 Local Setup Instructions
 
